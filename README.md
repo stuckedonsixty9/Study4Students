@@ -46,4 +46,4 @@ A visually stunning interface built for focus and delight:
 This portal was crafted to solve the problem of repetitive and limited learning materials. By combining algorithmic logic with a premium user experience, it ensures that a student never runs out of new challenges to solve.
 
 ---
-**Made with ❤️ for Students**
+**Made with ❤️ by Raghu Shukla**

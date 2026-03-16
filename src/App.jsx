@@ -631,6 +631,18 @@ function App() {
         </main>
       )}
 
+      <footer style={{ 
+        textAlign: 'center', 
+        padding: '2rem 1rem', 
+        color: 'var(--text-muted)', 
+        fontSize: '0.9rem',
+        borderTop: '1px solid var(--glass-border)',
+        marginTop: 'auto',
+        zIndex: 1
+      }}>
+        Made with ❤️ by <span style={{ color: 'var(--text-accent)', fontWeight: '600' }}>Raghu Shukla</span>
+      </footer>
+
       <footer className="footer-nav mobile-only">
         {activeTab === 'learn' ? (
           SUBJECTS.map((sub, idx) => (
