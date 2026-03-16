@@ -7,9 +7,23 @@ import { contentData } from './data';
 import './App.css';
 
 const SUBJECTS = ['GK', 'Reasoning', 'Maths', 'English'];
-const REFRESH_TIME = 7200; // 2 hours (7200 seconds)
+const REFRESH_TIME = 2400; // 40 minutes (2400 seconds)
 const QUESTIONS_PER_QUIZ = 50;
 const NEGATIVE_MARK = 0.25;
+const QUIZ_DURATION = 3600; // 1 hour (3600 seconds)
+
+const MOTIVATIONAL_QUOTES = [
+  "Success is not final, failure is not fatal: it is the courage to continue that counts.",
+  "Your only limit is your mind.",
+  "Push yourself, because no one else is going to do it for you.",
+  "Great things never come from comfort zones.",
+  "Dream it. Wish it. Do it.",
+  "Success doesn’t just find you. You have to go out and get it.",
+  "The harder you work for something, the greater you'll feel when you achieve it.",
+  "Don’t stop when you’re tired. Stop when you’re done.",
+  "Wake up with determination. Go to bed with satisfaction.",
+  "Do something today that your future self will thank you for."
+];
 
 // Helper to shuffle and pick N
 const getRandomQuestions = (subject, count = 10) => {
@@ -29,6 +43,7 @@ function App() {
   const [timeLeft, setTimeLeft] = useState(REFRESH_TIME);
   const [expandedId, setExpandedId] = useState(null);
   const [displayQuestions, setDisplayQuestions] = useState([]);
+  const [learnedCache, setLearnedCache] = useState({}); // Cache for randomized questions per subject
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Quiz State
@@ -36,6 +51,8 @@ function App() {
   const [currentQuizIdx, setCurrentQuizIdx] = useState(0);
   const [answers, setAnswers] = useState({}); // { questionId: selectedIndex }
   const [showResults, setShowResults] = useState(false);
+  const [quizTimeLeft, setQuizTimeLeft] = useState(QUIZ_DURATION);
+  const [randomQuote, setRandomQuote] = useState("");
 
   const currentSubject = SUBJECTS[currentSubjectIndex];
 
@@ -57,12 +74,18 @@ function App() {
     }
   }, []);
 
-  // Learning Mode: Pick 10 shuffle
+  // Learning Mode: Use cached questions or generate new ones
   useEffect(() => {
     if (activeTab === 'learn') {
-      setDisplayQuestions(getRandomQuestions(currentSubject));
+      if (learnedCache[currentSubject]) {
+        setDisplayQuestions(learnedCache[currentSubject]);
+      } else {
+        const newQuestions = getRandomQuestions(currentSubject);
+        setLearnedCache(prev => ({ ...prev, [currentSubject]: newQuestions }));
+        setDisplayQuestions(newQuestions);
+      }
     }
-  }, [currentSubject, activeTab]);
+  }, [currentSubject, activeTab, learnedCache]);
 
   // Daily Quiz initialization
   useEffect(() => {
@@ -93,6 +116,7 @@ function App() {
     }
   }, [activeTab]);
 
+  // Learning Mode Timer logic
   useEffect(() => {
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
@@ -107,12 +131,30 @@ function App() {
     return () => clearInterval(timer);
   }, [activeTab]);
 
+  // Quiz Timer logic
+  useEffect(() => {
+    let timer;
+    if (activeTab === 'quiz' && !showResults) {
+      timer = setInterval(() => {
+        setQuizTimeLeft((prev) => {
+          if (prev <= 1) {
+            handleFinishQuiz();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [activeTab, showResults]);
+
   const handleAutoRefresh = () => {
     setIsRefreshing(true);
     localStorage.setItem('last_refresh_time', Date.now().toString());
     
     setTimeout(() => {
       setCurrentSubjectIndex((prevIdx) => (prevIdx + 1) % SUBJECTS.length);
+      setLearnedCache({}); // Clear cache on auto-refresh
       setExpandedId(null);
       setIsRefreshing(false);
       setTimeLeft(REFRESH_TIME);
@@ -168,6 +210,7 @@ function App() {
 
   const handleFinishQuiz = () => {
     setShowResults(true);
+    setRandomQuote(MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)]);
     confetti({
       particleCount: 150,
       spread: 70,
@@ -191,7 +234,15 @@ function App() {
               className={`mode-btn ${activeTab === 'learn' ? 'active' : ''}`}
               onClick={() => setActiveTab('learn')}
             >
-              Learn
+              {activeTab === 'learn' && (
+                <motion.div 
+                  layoutId="active-pill"
+                  className="active-bg"
+                  transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                />
+              )}
+              <BookOpen size={16} className="btn-icon" />
+              <span>Learn</span>
             </button>
             <button 
               className={`mode-btn ${activeTab === 'quiz' ? 'active' : ''}`}
@@ -202,14 +253,22 @@ function App() {
                 setShowResults(false);
               }}
             >
-              Daily Quiz
+              {activeTab === 'quiz' && (
+                <motion.div 
+                  layoutId="active-pill"
+                  className="active-bg"
+                  transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                />
+              )}
+              <Trophy size={16} className="btn-icon" />
+              <span>Daily Quiz</span>
             </button>
           </div>
 
-          {activeTab === 'learn' && (
+          {(activeTab === 'learn' || (activeTab === 'quiz' && !showResults)) && (
             <div className="timer-badge">
               <Clock size={16} />
-              <span>{formatTime(timeLeft)}</span>
+              <span>{activeTab === 'learn' ? formatTime(timeLeft) : formatTime(quizTimeLeft)}</span>
             </div>
           )}
         </div>
@@ -296,7 +355,9 @@ function App() {
                                 <CheckCircle2 size={20} className="success-icon" />
                                 <div>
                                   <strong>Correct Answer: {q.answer}</strong>
-                                  <p>{q.explanation}</p>
+                                  {(currentSubject === 'Maths' || currentSubject === 'Reasoning' || currentSubject === 'GK') && (
+                                    <p>{q.explanation}</p>
+                                  )}
                                 </div>
                               </div>
                             </motion.div>
@@ -317,7 +378,6 @@ function App() {
               <div className="quiz-progress-section">
                 <div className="progress-info">
                   <span>Question {currentQuizIdx + 1} of {quizQuestions.length}</span>
-                  <span>{Math.round(((currentQuizIdx + 1) / quizQuestions.length) * 100)}%</span>
                 </div>
                 <div className="progress-track">
                   <motion.div 
@@ -385,6 +445,9 @@ function App() {
               <div className="results-header">
                 <Trophy size={64} className="trophy-gold" />
                 <h2>Daily Quiz Completed!</h2>
+                <div className="quote-box">
+                  <p>"{randomQuote}"</p>
+                </div>
                 <p>Date: {new Date().toLocaleDateString()}</p>
               </div>
 
@@ -423,6 +486,48 @@ function App() {
                 }}>
                   <RotateCcw size={18} /> Retake Quiz
                 </button>
+              </div>
+
+              <div className="answer-key-section">
+                <h3 className="key-title">Detailed Answer Key</h3>
+                <div className="key-list">
+                  {quizQuestions.map((q, idx) => {
+                    const userIdx = answers[q.id];
+                    const userAns = userIdx !== undefined ? q.options[userIdx] : "Not Attempted";
+                    const isCorrect = userAns === q.answer;
+                    
+                    return (
+                      <div key={q.id} className={`key-item ${isCorrect ? 'correct-choice' : (userAns === "Not Attempted" ? 'skipped-choice' : 'wrong-choice')}`}>
+                        <div className="key-q-header">
+                          <span className="key-num">Q{idx + 1}</span>
+                          <p className="key-q-text">{q.question}</p>
+                        </div>
+                        <div className="key-ans-details">
+                          <div className="user-choice">
+                            <span>Your Answer:</span>
+                            <strong>{userAns}</strong>
+                          </div>
+                          {!isCorrect && (
+                            <div className="correct-choice-box">
+                              <span>Correct Answer:</span>
+                              <strong>{q.answer}</strong>
+                            </div>
+                          )}
+                          {isCorrect && (
+                             <div className="correct-marker">
+                               <CheckCircle2 size={16} /> Correct
+                             </div>
+                          )}
+                        </div>
+                        {(q.explanation && (isCorrect || userAns !== "Not Attempted")) && (
+                          <div className="key-explanation">
+                            <p><strong>Explanation:</strong> {q.explanation}</p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </motion.div>
           )}
