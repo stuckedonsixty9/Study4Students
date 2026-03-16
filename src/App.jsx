@@ -60,7 +60,7 @@ const fetchExternalQuestions = async (subject, count = 10) => {
 
     const res = await fetch(`https://opentdb.com/api.php?amount=${count}&category=${cat}&type=multiple`);
     const data = await res.json();
-    
+
     if (data.results) {
       return data.results.map((q, idx) => ({
         id: `ext_${subject}_${Date.now()}_${idx}`,
@@ -84,7 +84,7 @@ const getRandomQuestions = async (subject, count = 10) => {
   const all = contentData[subject] || [];
   const history = getHistory();
   const seenIds = history[subject] || [];
-  
+
   // 1. Try to get from procedural generators first for Maths/Reasoning (Infinite)
   if (subject === 'Maths' || subject === 'Reasoning') {
     return getInfiniteQuestions(subject, count);
@@ -92,7 +92,7 @@ const getRandomQuestions = async (subject, count = 10) => {
 
   // 2. For GK/English, try to get from unseen local pool
   let available = all.filter(q => !seenIds.includes(q.id));
-  
+
   // 3. If local pool low, try external API
   if (available.length < count / 2) {
     const ext = await fetchExternalQuestions(subject, count);
@@ -106,7 +106,7 @@ const getRandomQuestions = async (subject, count = 10) => {
     localStorage.setItem('portal_history', JSON.stringify(historyFull));
     available = all;
   }
-  
+
   const picked = shuffleArray(available).slice(0, count);
   updateHistory(subject, picked.map(q => q.id));
   return picked;
@@ -138,23 +138,7 @@ function App() {
 
   const currentSubject = SUBJECTS[currentSubjectIndex];
 
-  // Timer Persistence Logic
-  useEffect(() => {
-    const lastRefresh = localStorage.getItem('last_refresh_time');
-    const now = Date.now();
-    
-    if (lastRefresh) {
-      const elapsed = Math.floor((now - parseInt(lastRefresh)) / 1000);
-      if (elapsed < REFRESH_TIME) {
-        setTimeLeft(REFRESH_TIME - elapsed);
-      } else {
-        handleAutoRefresh();
-      }
-    } else {
-      localStorage.setItem('last_refresh_time', now.toString());
-      setTimeLeft(REFRESH_TIME);
-    }
-  }, []);
+
 
   // Learning Mode: Use cached questions or generate new ones
   useEffect(() => {
@@ -174,41 +158,56 @@ function App() {
     updateQuestions();
   }, [currentSubject, activeTab, learnedCache]);
 
-  // Daily Quiz initialization (Infinite & Seeded)
+  // Daily Quiz initialization (Infinite & Cache Persistence)
   useEffect(() => {
     const initQuiz = async () => {
       if (activeTab === 'quiz') {
         const dayOffset = getDailySeed();
+        const dateKey = new Date().toLocaleDateString();
         
-        // 1. Seeded Dynamic Content (50% of Quiz)
-        // Using dayOffset as seed for consistent daily generation
-        const genCount = Math.floor(QUESTIONS_PER_QUIZ * 0.5);
-        const genMath = getInfiniteQuestions('Maths', Math.ceil(genCount / 2), dayOffset);
-        const genReason = getInfiniteQuestions('Reasoning', Math.floor(genCount / 2), dayOffset + 1);
+        // 1. Try to load cached quiz for today
+        const cachedQuizStr = localStorage.getItem('daily_quiz_data');
+        const cachedDate = localStorage.getItem('daily_quiz_date');
+        
+        if (cachedQuizStr && cachedDate === dateKey) {
+          try {
+            setQuizQuestions(JSON.parse(cachedQuizStr));
+            return;
+          } catch (e) {
+            console.error("Failed to parse cached quiz", e);
+          }
+        }
 
-        // 2. External API Content (30% of Quiz)
-        // Fetching 15 questions from global DB
-        const apiCount = Math.floor(QUESTIONS_PER_QUIZ * 0.3);
-        const extGK = await fetchExternalQuestions('GK', apiCount);
-        
-        // 3. Static Pool Rotation (20% of Quiz)
-        // Still use a bit of local pool for consistency
-        const staticCount = QUESTIONS_PER_QUIZ - genMath.length - genReason.length - extGK.length;
+        // 2. Base static pool if no cache
         const staticPool = [
           ...contentData.GK,
           ...contentData.Reasoning,
           ...contentData.Maths,
           ...contentData.English
         ];
-        const startIndex = (dayOffset * staticCount) % staticPool.length;
-        let staticSet = [];
+
+        const total = staticPool.length;
+        const startIndex = (dayOffset * QUESTIONS_PER_QUIZ) % total;
+
+        let quizSet = [];
+        const staticCount = Math.floor(QUESTIONS_PER_QUIZ * 0.7);
+        const dynamicCount = QUESTIONS_PER_QUIZ - staticCount;
+
         for (let i = 0; i < staticCount; i++) {
-          staticSet.push(staticPool[(startIndex + i) % staticPool.length]);
+          quizSet.push(staticPool[(startIndex + i) % total]);
         }
+
+        // 3. Add dynamically generated logic
+        const genMath = getInfiniteQuestions('Maths', Math.ceil(dynamicCount / 2), dayOffset);
+        const genReason = getInfiniteQuestions('Reasoning', Math.floor(dynamicCount / 2), dayOffset + 1);
+
+        const combinedQuiz = shuffleArray([...quizSet, ...genMath, ...genReason]);
         
-        // Combine and Shuffle
-        const fullQuiz = shuffleArray([...genMath, ...genReason, ...extGK, ...staticSet]);
-        setQuizQuestions(fullQuiz);
+        // 4. Cache for today
+        localStorage.setItem('daily_quiz_data', JSON.stringify(combinedQuiz));
+        localStorage.setItem('daily_quiz_date', dateKey);
+        
+        setQuizQuestions(combinedQuiz);
       }
     };
     initQuiz();
@@ -219,7 +218,7 @@ function App() {
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
-          handleAutoRefresh();
+          // Just reset the timer, don't auto-refresh content
           return REFRESH_TIME;
         }
         return prev - 1;
@@ -249,7 +248,7 @@ function App() {
   const handleAutoRefresh = () => {
     setIsRefreshing(true);
     localStorage.setItem('last_refresh_time', Date.now().toString());
-    
+
     setTimeout(() => {
       setCurrentSubjectIndex((prevIdx) => (prevIdx + 1) % SUBJECTS.length);
       setLearnedCache({}); // Clear cache on auto-refresh
@@ -280,7 +279,7 @@ function App() {
   const handleSelectAnswer = (qId, optionIdx) => {
     if (showResults) return;
     setAnswers({ ...answers, [qId]: optionIdx });
-    
+
     // Smooth transition to next question after selection
     if (currentQuizIdx < quizQuestions.length - 1) {
       setTimeout(() => setCurrentQuizIdx(prev => prev + 1), 400);
@@ -326,14 +325,14 @@ function App() {
             <div className="logo-icon">PR</div>
             <h1>PORTAL<span> BY RAGHU</span></h1>
           </div>
-          
+
           <div className="mode-toggle">
-            <button 
+            <button
               className={`mode-btn ${activeTab === 'learn' ? 'active' : ''}`}
               onClick={() => setActiveTab('learn')}
             >
               {activeTab === 'learn' && (
-                <motion.div 
+                <motion.div
                   layoutId="active-pill"
                   className="active-bg"
                   transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
@@ -342,7 +341,7 @@ function App() {
               <BookOpen size={16} className="btn-icon" />
               <span>Learn</span>
             </button>
-            <button 
+            <button
               className={`mode-btn ${activeTab === 'quiz' ? 'active' : ''}`}
               onClick={() => {
                 setActiveTab('quiz');
@@ -352,7 +351,7 @@ function App() {
               }}
             >
               {activeTab === 'quiz' && (
-                <motion.div 
+                <motion.div
                   layoutId="active-pill"
                   className="active-bg"
                   transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
@@ -372,7 +371,7 @@ function App() {
         </div>
         {activeTab === 'learn' && (
           <div className="timer-progress-container">
-            <motion.div 
+            <motion.div
               className="timer-progress-bar"
               animate={{ width: `${timerPercentage}%` }}
               transition={{ duration: 1, ease: "linear" }}
@@ -423,7 +422,7 @@ function App() {
                     className="questions-wrapper"
                   >
                     {displayQuestions.map((q, index) => (
-                      <motion.div 
+                      <motion.div
                         key={q.id}
                         layout
                         className={`question-card ${expandedId === q.id ? 'expanded' : ''}`}
@@ -433,14 +432,14 @@ function App() {
                         <div className="card-header">
                           <span className="q-number">#{index + 1}</span>
                           <h3 className="question-text">{q.question}</h3>
-                          <motion.div 
+                          <motion.div
                             animate={{ rotate: expandedId === q.id ? 180 : 0 }}
                             className="expand-icon"
                           >
                             <ChevronDown size={20} />
                           </motion.div>
                         </div>
-                        
+
                         <AnimatePresence>
                           {expandedId === q.id && (
                             <motion.div
@@ -478,7 +477,7 @@ function App() {
                   <span>Question {currentQuizIdx + 1} of {quizQuestions.length}</span>
                 </div>
                 <div className="progress-track">
-                  <motion.div 
+                  <motion.div
                     className="progress-fill"
                     animate={{ width: `${((currentQuizIdx + 1) / quizQuestions.length) * 100}%` }}
                     transition={{ type: "spring", stiffness: 100, damping: 20 }}
@@ -513,7 +512,7 @@ function App() {
               )}
 
               <div className="quiz-controls">
-                <button 
+                <button
                   className="control-btn prev"
                   disabled={currentQuizIdx === 0}
                   onClick={() => setCurrentQuizIdx(prev => prev - 1)}
@@ -521,7 +520,7 @@ function App() {
                   Previous
                 </button>
                 {currentQuizIdx < quizQuestions.length - 1 ? (
-                  <button 
+                  <button
                     className="control-btn next"
                     onClick={() => setCurrentQuizIdx(prev => prev + 1)}
                   >
@@ -535,7 +534,7 @@ function App() {
               </div>
             </div>
           ) : (
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               className="results-view"
@@ -593,7 +592,7 @@ function App() {
                     const userIdx = answers[q.id];
                     const userAns = userIdx !== undefined ? q.options[userIdx] : "Not Attempted";
                     const isCorrect = userAns === q.answer;
-                    
+
                     return (
                       <div key={q.id} className={`key-item ${isCorrect ? 'correct-choice' : (userAns === "Not Attempted" ? 'skipped-choice' : 'wrong-choice')}`}>
                         <div className="key-q-header">
@@ -612,9 +611,9 @@ function App() {
                             </div>
                           )}
                           {isCorrect && (
-                             <div className="correct-marker">
-                               <CheckCircle2 size={16} /> Correct
-                             </div>
+                            <div className="correct-marker">
+                              <CheckCircle2 size={16} /> Correct
+                            </div>
                           )}
                         </div>
                         {(q.explanation && (isCorrect || userAns !== "Not Attempted")) && (
@@ -649,7 +648,7 @@ function App() {
           ))
         ) : (
           <div className="quiz-footer-nav" style={{ display: 'flex', alignItems: 'center', gap: '1rem', color: 'white' }}>
-             <button onClick={() => setActiveTab('learn')} style={{ background: 'none', border: 'none', color: 'white' }}>
+            <button onClick={() => setActiveTab('learn')} style={{ background: 'none', border: 'none', color: 'white' }}>
               <BookOpen size={24} />
             </button>
             <span style={{ fontWeight: 600 }}>Daily Quiz Mode</span>
