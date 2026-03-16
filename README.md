@@ -1,16 +1,31 @@
-# React + Vite
+# Portal by Raghu 🚀
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A premium, high-fidelity student learning portal designed for excellence.
 
-Currently, two official plugins are available:
+![Portal Preview](https://img.shields.io/badge/Design-Liquid_Editorial-blueviolet?style=for-the-badge)
+![Tech](https://img.shields.io/badge/Built_with-React_%2B_Vite-61DAFB?style=for-the-badge)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## ✨ Features
 
-## React Compiler
+- **Premium UI**: Modern mesh gradient backgrounds with high-fidelity glassmorphism.
+- **Daily Learning**: Handpicked insights for GK, Reasoning, Maths, and English.
+- **Interactive Quizzes**: Seeded daily quizzes with real-time scoring and negative marking.
+- **Responsive Design**: Optimized for a seamless experience across desktop and mobile.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## 🛠️ Tech Stack
 
-## Expanding the ESLint configuration
+- **Frontend**: React 19, Vite
+- **Animations**: Framer Motion
+- **Icons**: Lucide React
+- **Styling**: Vanilla CSS with Modern Design Tokens
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## 🚀 Getting Started
+
+1. Clone the repository
+2. Install dependencies: `npm install`
+3. Run locally: `npm run dev`
+
+---
+
+### 👑 Credits
+Developed and Designed with ❤️ **by Raghu**.
