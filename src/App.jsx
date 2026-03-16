@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { BookOpen, Brain, Calculator, Languages, Clock, ChevronRight, CheckCircle2, ChevronDown, Trophy, RotateCcw, HelpCircle } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { contentData } from './data';
+import { getInfiniteQuestions } from './generators';
 import './App.css';
 
 const SUBJECTS = ['GK', 'Reasoning', 'Maths', 'English'];
@@ -25,16 +26,97 @@ const MOTIVATIONAL_QUOTES = [
   "Do something today that your future self will thank you for."
 ];
 
-// Helper to shuffle and pick N
-const getRandomQuestions = (subject, count = 10) => {
-  const all = contentData[subject];
-  return [...all].sort(() => Math.random() - 0.5).slice(0, count);
+// Fisher-Yates Shuffle
+const shuffleArray = (array) => {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+};
+
+const getHistory = () => {
+  try {
+    return JSON.parse(localStorage.getItem('portal_history') || '{}');
+  } catch (e) {
+    return {};
+  }
+};
+
+const updateHistory = (subject, ids) => {
+  const history = getHistory();
+  const current = history[subject] || [];
+  history[subject] = [...new Set([...current, ...ids])];
+  localStorage.setItem('portal_history', JSON.stringify(history));
+};
+
+// Helper to fetch external GK/English if needed
+const fetchExternalQuestions = async (subject, count = 10) => {
+  try {
+    const categoryMap = { 'GK': 9, 'English': 10 }; // OTDB categories
+    const cat = categoryMap[subject];
+    if (!cat) return [];
+
+    const res = await fetch(`https://opentdb.com/api.php?amount=${count}&category=${cat}&type=multiple`);
+    const data = await res.json();
+    
+    if (data.results) {
+      return data.results.map((q, idx) => ({
+        id: `ext_${subject}_${Date.now()}_${idx}`,
+        question: decodeURIComponent(atob(q.question)), // Handle encoded chars if needed, but OTDB often uses HTML entities
+        // Simpler decode for now
+        question: q.question.replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&amp;/g, '&'),
+        options: shuffleArray([...q.incorrect_answers, q.correct_answer].map(o => o.replace(/&quot;/g, '"').replace(/&#039;/g, "'"))),
+        answer: q.correct_answer.replace(/&quot;/g, '"').replace(/&#039;/g, "'"),
+        explanation: "External question from global trivia database."
+      }));
+    }
+    return [];
+  } catch (e) {
+    console.error("External fetch failed", e);
+    return [];
+  }
+};
+
+// Helper to shuffle and pick N unique questions (Mixing Static + Generated + API)
+const getRandomQuestions = async (subject, count = 10) => {
+  const all = contentData[subject] || [];
+  const history = getHistory();
+  const seenIds = history[subject] || [];
+  
+  // 1. Try to get from procedural generators first for Maths/Reasoning (Infinite)
+  if (subject === 'Maths' || subject === 'Reasoning') {
+    return getInfiniteQuestions(subject, count);
+  }
+
+  // 2. For GK/English, try to get from unseen local pool
+  let available = all.filter(q => !seenIds.includes(q.id));
+  
+  // 3. If local pool low, try external API
+  if (available.length < count / 2) {
+    const ext = await fetchExternalQuestions(subject, count);
+    if (ext.length > 0) return ext;
+  }
+
+  // 4. Fallback: reset history if everything exhausted
+  if (available.length < count) {
+    const historyFull = getHistory();
+    delete historyFull[subject];
+    localStorage.setItem('portal_history', JSON.stringify(historyFull));
+    available = all;
+  }
+  
+  const picked = shuffleArray(available).slice(0, count);
+  updateHistory(subject, picked.map(q => q.id));
+  return picked;
 };
 
 // Date-based seed for a unique quiz daily
 const getDailySeed = () => {
   const now = new Date();
-  return now.getFullYear() * 10000 + (now.getMonth() + 1) * 100 + now.getDate();
+  // Using days since epoch for more reliable sequential logic
+  return Math.floor(now.getTime() / (1000 * 60 * 60 * 24));
 };
 
 function App() {
@@ -76,44 +158,60 @@ function App() {
 
   // Learning Mode: Use cached questions or generate new ones
   useEffect(() => {
-    if (activeTab === 'learn') {
-      if (learnedCache[currentSubject]) {
-        setDisplayQuestions(learnedCache[currentSubject]);
-      } else {
-        const newQuestions = getRandomQuestions(currentSubject);
-        setLearnedCache(prev => ({ ...prev, [currentSubject]: newQuestions }));
-        setDisplayQuestions(newQuestions);
+    const updateQuestions = async () => {
+      if (activeTab === 'learn') {
+        if (learnedCache[currentSubject]) {
+          setDisplayQuestions(learnedCache[currentSubject]);
+        } else {
+          setIsRefreshing(true);
+          const newQuestions = await getRandomQuestions(currentSubject);
+          setLearnedCache(prev => ({ ...prev, [currentSubject]: newQuestions }));
+          setDisplayQuestions(newQuestions);
+          setIsRefreshing(false);
+        }
       }
-    }
+    };
+    updateQuestions();
   }, [currentSubject, activeTab, learnedCache]);
 
-  // Daily Quiz initialization
+  // Daily Quiz initialization (Infinite & Seeded)
   useEffect(() => {
-    if (activeTab === 'quiz') {
-      const seed = getDailySeed();
-      // Combine all pools
-      const allQuestions = [
-        ...contentData.GK,
-        ...contentData.Reasoning,
-        ...contentData.Maths,
-        ...contentData.English
-      ];
-      
-      // Simple seeded random to ensure same quiz for all users today
-      const seededRandom = (s) => {
-        const x = Math.sin(s++) * 10000;
-        return x - Math.floor(x);
-      };
-
-      let currentSeed = seed;
-      const shuffled = [...allQuestions]
-        .map(value => ({ value, sort: seededRandom(currentSeed++) }))
-        .sort((a, b) => a.sort - b.sort)
-        .map(({ value }) => value)
-        .slice(0, QUESTIONS_PER_QUIZ);
+    const initQuiz = async () => {
+      if (activeTab === 'quiz') {
+        const dayOffset = getDailySeed();
         
-      setQuizQuestions(shuffled);
-    }
+        // 1. Seeded Dynamic Content (50% of Quiz)
+        // Using dayOffset as seed for consistent daily generation
+        const genCount = Math.floor(QUESTIONS_PER_QUIZ * 0.5);
+        const genMath = getInfiniteQuestions('Maths', Math.ceil(genCount / 2), dayOffset);
+        const genReason = getInfiniteQuestions('Reasoning', Math.floor(genCount / 2), dayOffset + 1);
+
+        // 2. External API Content (30% of Quiz)
+        // Fetching 15 questions from global DB
+        const apiCount = Math.floor(QUESTIONS_PER_QUIZ * 0.3);
+        const extGK = await fetchExternalQuestions('GK', apiCount);
+        
+        // 3. Static Pool Rotation (20% of Quiz)
+        // Still use a bit of local pool for consistency
+        const staticCount = QUESTIONS_PER_QUIZ - genMath.length - genReason.length - extGK.length;
+        const staticPool = [
+          ...contentData.GK,
+          ...contentData.Reasoning,
+          ...contentData.Maths,
+          ...contentData.English
+        ];
+        const startIndex = (dayOffset * staticCount) % staticPool.length;
+        let staticSet = [];
+        for (let i = 0; i < staticCount; i++) {
+          staticSet.push(staticPool[(startIndex + i) % staticPool.length]);
+        }
+        
+        // Combine and Shuffle
+        const fullQuiz = shuffleArray([...genMath, ...genReason, ...extGK, ...staticSet]);
+        setQuizQuestions(fullQuiz);
+      }
+    };
+    initQuiz();
   }, [activeTab]);
 
   // Learning Mode Timer logic
